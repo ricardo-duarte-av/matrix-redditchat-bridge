@@ -56,6 +56,7 @@ func (c *RedditChatClient) convertRedditMedia(
 	}
 
 	cloned := *content
+	threadRoot := redditThreadRoot(&cloned)
 	cloned.RelatesTo = nil
 	cloned.NewContent = nil
 	if cloned.Info == nil {
@@ -103,6 +104,7 @@ func (c *RedditChatClient) convertRedditMedia(
 		Msg("Re-hosted Reddit media on Matrix")
 
 	return &bridgev2.ConvertedMessage{
+		ThreadRoot: threadRoot,
 		Parts: []*bridgev2.ConvertedMessagePart{{
 			Type:    event.EventMessage,
 			Content: &cloned,

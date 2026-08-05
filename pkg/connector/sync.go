@@ -275,18 +275,33 @@ func (c *RedditChatClient) handleTimelineEvent(ctx context.Context, portalKey ne
 }
 
 // convertRedditMessage turns a Reddit m.room.message into a Matrix one. Both sides speak the
-// same event format, so this is mostly a passthrough with the relation fields stripped, since
-// replies and edits aren't bridged in v1 and dangling relations would confuse Matrix clients.
+// same event format, so this is mostly a passthrough: the relation is rebuilt by the central
+// module from ThreadRoot rather than copied, since the raw event IDs are Reddit's.
 func convertRedditMessage(
 	_ context.Context, _ *bridgev2.Portal, _ bridgev2.MatrixAPI, content *event.MessageEventContent,
 ) (*bridgev2.ConvertedMessage, error) {
 	cloned := *content
+	threadRoot := redditThreadRoot(&cloned)
 	cloned.RelatesTo = nil
 	cloned.NewContent = nil
 	return &bridgev2.ConvertedMessage{
+		ThreadRoot: threadRoot,
 		Parts: []*bridgev2.ConvertedMessagePart{{
 			Type:    event.EventMessage,
 			Content: &cloned,
 		}},
 	}, nil
+}
+
+// redditThreadRoot extracts the thread a Reddit message belongs to.
+//
+// Reddit implements replies as Matrix threads (rel_type m.thread with an m.in_reply_to fallback)
+// rather than as plain replies, so a "reply" in Reddit's UI arrives here as a thread relation.
+func redditThreadRoot(content *event.MessageEventContent) *networkid.MessageID {
+	rel := content.RelatesTo
+	if rel == nil || rel.Type != event.RelThread || rel.EventID == "" {
+		return nil
+	}
+	root := networkid.MessageID(rel.EventID)
+	return &root
 }

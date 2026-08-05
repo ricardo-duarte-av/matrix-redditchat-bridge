@@ -54,10 +54,10 @@ func (c *RedditChatClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 	}
 
 	content := *msg.Content
-	// Replies aren't bridged yet, and forwarding a relation pointing at a Matrix event ID would
-	// produce a dangling reference on the Reddit side.
-	content.RelatesTo = nil
 	content.NewContent = nil
+	// Rebuild the relation against Reddit's event IDs. Forwarding the Matrix relation as-is
+	// would point at Matrix event IDs, which mean nothing to Reddit.
+	content.RelatesTo = redditRelation(msg)
 
 	eventID, err := c.Client.SendText(ctx, id.RoomID(msg.Portal.ID), &content, string(msg.InputTransactionID))
 	if err != nil {
@@ -135,9 +135,10 @@ func (c *RedditChatClient) sendMatrixMedia(ctx context.Context, msg *bridgev2.Ma
 
 	// Match Reddit's own client exactly; its UI keys off info rather than body.
 	outgoing := &event.MessageEventContent{
-		MsgType: event.MsgImage,
-		Body:    "Image",
-		URL:     redditURL,
+		MsgType:   event.MsgImage,
+		Body:      "Image",
+		URL:       redditURL,
+		RelatesTo: redditRelation(msg),
 		Info: &event.FileInfo{
 			Width:    width,
 			Height:   height,
@@ -164,4 +165,34 @@ func (c *RedditChatClient) sendMatrixMedia(ctx context.Context, msg *bridgev2.Ma
 			SendTxnID: msg.InputTransactionID,
 		},
 	}, nil
+}
+
+// redditRelation builds the relation to send to Reddit for a Matrix message.
+//
+// Reddit models replies as threads: its client sends rel_type m.thread with an m.in_reply_to
+// fallback, and that is how replies show up in its UI. A Matrix reply or thread reply is
+// therefore both mapped onto a Reddit thread, keyed by the Reddit event ID the bridge stored
+// for the target rather than the Matrix one.
+func redditRelation(msg *bridgev2.MatrixMessage) *event.RelatesTo {
+	target := msg.ThreadRoot
+	if target == nil {
+		target = msg.ReplyTo
+	}
+	if target == nil || target.ID == "" {
+		return nil
+	}
+	rootID := id.EventID(target.ID)
+	rel := &event.RelatesTo{
+		Type:    event.RelThread,
+		EventID: rootID,
+		// Reddit's own client sets the reply fallback, and older clients rely on it.
+		InReplyTo:     &event.InReplyTo{EventID: rootID},
+		IsFallingBack: true,
+	}
+	// When replying to a specific message inside a thread, point the fallback at that message.
+	if msg.ReplyTo != nil && msg.ReplyTo.ID != "" && msg.ThreadRoot != nil {
+		rel.InReplyTo.EventID = id.EventID(msg.ReplyTo.ID)
+		rel.IsFallingBack = false
+	}
+	return rel
 }

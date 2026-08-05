@@ -19,11 +19,11 @@ v1 scope, working:
 - The bridge bot creates portal rooms, invites the Matrix user, and joins the ghosts.
 - Text messages in both directions.
 - Images in both directions, re-hosted on each side.
+- Replies, which Reddit models as Matrix threads.
 - Reddit → Matrix history backfill.
 - Double puppeting, via a second appservice or per-user `login-matrix`.
 
-Not implemented yet: reactions, edits, redactions, replies, typing notifications and read
-receipts. Unsupported message types are logged and dropped rather than half-bridged, and Matrix
+Not implemented yet: reactions, edits, redactions, typing notifications and read receipts. Unsupported message types are logged and dropped rather than half-bridged, and Matrix
 clients are told via room capabilities what is and isn't supported.
 
 **Media is images only, in both directions.** Reddit's media endpoint accepts `image/jpeg`,
@@ -235,6 +235,9 @@ these request shapes against a stub server so they don't silently drift.
 | `t0_0` is the **end**-of-history marker, not a starting cursor — paginating from it returns empty chunks forever | Backward pagination starts with `from` omitted; `t0_0` terminates the walk (`HasMoreHistory`) |
 | Most chats have no `m.room.name`/`topic`/`avatar` at all | A 404 for those is normal, not an error |
 | Reddit tags rooms with a custom `com.reddit.chat.type` event | Ignored; DM detection uses `is_direct` and the member count |
+| Replies are **threads**: Reddit sends `rel_type: m.thread` with an `m.in_reply_to` fallback, never a plain reply | A Matrix reply or thread reply both map onto a Reddit thread, keyed by the stored Reddit event ID |
+| Reactions never appear in `/messages`, only in `/sync` | They cannot be backfilled, only observed live |
+| Reaction keys are Reddit emoji IDs (e.g. `jvuspmbga7081.gif`, served from `i.redd.it`), and unicode is refused with `M_INVALID_ARGUMENT_VALUE: reaction key is not supported` | Reactions are advertised as unsupported rather than failing after the user sends one |
 | `/sync` caps its room list at **20 joined + 20 invited**, regardless of filter, timeline limit or `full_state` | `/joined_rooms` is not capped, so the bridge reconciles against it once per connection and bridges whatever sync omitted. On the test account sync showed 20 while `/joined_rooms` showed 23 |
 | In an unaccepted chat, `/members` and `/state/*` return **403** ("has never joined this room") while `/messages` works | Chat info for those portals is built from sync's `invite_state`, which carries the member events and display names; `getChatInfo` treats a 403 as "still pending" rather than an error |
 

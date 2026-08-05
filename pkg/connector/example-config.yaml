@@ -1,0 +1,62 @@
+# The base URL of Reddit's (heavily modified, unfederated) Dendrite homeserver.
+# This is the same URL a Matrix client would be pointed at to talk to Reddit chat.
+# Reddit serves the standard /_matrix/client/v3 endpoints under this host.
+homeserver_url: https://matrix.redditspace.com
+
+# The server name used in Reddit's user and room IDs, i.e. the part after the colon
+# in @t2_abcdef:reddit.com. Used to convert between Reddit MXIDs and network user IDs.
+server_name: reddit.com
+
+# How long to hold each /sync request open on the Reddit side.
+sync_timeout: 30s
+
+# Timeout for individual non-sync requests to Reddit.
+request_timeout: 60s
+
+# How many messages to request per /messages call when backfilling.
+backfill_batch_size: 50
+
+# Should chats you dismissed on Reddit be bridged?
+# Pressing "Ignore" on a Reddit chat request sets a com.reddit.hidden_chat flag and Reddit then
+# shows that chat nowhere in its UI. Bridging those would resurrect conversations you got rid of,
+# so they are skipped by default. Applies to dismissed accepted chats too.
+bridge_hidden_chats: false
+
+# Should chats Reddit classified as spam be bridged?
+# Reddit does not show spam-flagged chat requests in its requests list.
+bridge_spam_chats: false
+
+# How often to re-check chat requests you haven't accepted yet for new messages.
+# Reddit's /sync never reports timeline activity in a room you've only been invited to, so
+# without this a pending chat request would show its first message and then go silent until you
+# reply. Only unaccepted chats are polled; accepted ones come through sync normally.
+# Set to 0 to disable.
+pending_request_poll_interval: 5m
+
+# Optional override for the Matrix media endpoint used when uploading avatars.
+# Normally the bridge uploads through homeserver -> address like everything else. Set this only
+# if that path cannot reach your media repository - for example a worker deployment where the
+# public URL routes /_matrix/media to the wrong process. Point it straight at the media worker,
+# e.g. http://172.20.0.28:8008 . Leave empty to use the normal homeserver address.
+matrix_media_url:
+
+# Where the bridge mints fresh chat tokens from a stored Reddit session cookie.
+# Reddit chat tokens are JWTs that expire after 24 hours. Loading the chat page with a logged-in
+# session cookie returns a fresh one, both as a token_v2 cookie and in the page's <rs-app>
+# element. Only used by the `cookie` login flow. If Reddit moves the page, change it here.
+#
+# The page advertises a /svc/shreddit/token refresh endpoint, but that rejects every request
+# shape tried even with valid cookies, so the page load is used instead.
+token_refresh_url: https://www.reddit.com/chat/
+
+# User agent sent to www.reddit.com when refreshing tokens. Reddit blocks requests that don't
+# look like a browser. Not used for requests to the Matrix homeserver.
+user_agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36
+
+# Optional proxy for token refresh requests only; the Matrix homeserver is always contacted
+# directly. Reddit's edge serves a "blocked by network security" page to some networks, and if
+# yours is affected even with valid session cookies, routing just this one request through a
+# proxy is the fix. Supports http://, https:// and socks5:// URLs.
+# Note that only *anonymous* requests are usually blocked; refresh sends your session cookie,
+# so it is often fine even when an unauthenticated curl from the same host gets a 403.
+refresh_proxy_url:

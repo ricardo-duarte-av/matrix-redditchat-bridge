@@ -30,3 +30,13 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Bridge build output and runtime state
+/matrix-redditchat
+/config.yaml
+/registration.yaml
+/doublepuppet-registration.yaml
+/bridge.db
+/bridge.db-shm
+/bridge.db-wal
+/logs/

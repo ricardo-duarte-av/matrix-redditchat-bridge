@@ -107,35 +107,21 @@ func roomEventFilter() *mautrix.FilterPart {
 	}
 }
 
-// syncFilter is passed inline as JSON rather than pre-registered with /user/{id}/filter, which
-// is what Reddit's client does and avoids depending on their filter storage working.
-func syncFilter() (string, error) {
-	filter, err := json.Marshal(&mautrix.Filter{
-		Room: &mautrix.RoomFilter{
-			Timeline: roomEventFilter(),
-			State:    &mautrix.FilterPart{LazyLoadMembers: true},
-		},
-	})
-	if err != nil {
-		return "", err
-	}
-	return string(filter), nil
-}
-
 // Sync performs a single /sync request. The caller owns the since token and is responsible for
 // persisting it. A dedicated http.Client is used because the sync request is held open for
 // much longer than the normal request timeout allows.
+// Sync deliberately sends NO filter.
+//
+// Reddit drops m.reaction (and com.reddit.profile) from any filtered sync - verified against the
+// live server with the bridge's own filter, a filter without not_types, one without lazy loading,
+// an empty room filter and a completely empty filter: all returned zero reactions, while an
+// unfiltered sync returned seven. Reddit's own client only gets relations because of its
+// `web_chat_no_aggregated_relations_filter` experiment. The cost of dropping the filter is
+// larger sync payloads, which is cheap given Reddit chats are two- or three-person rooms.
 func (c *Client) Sync(ctx context.Context, since string, timeout time.Duration) (*mautrix.RespSync, error) {
-	filter, err := syncFilter()
-	if err != nil {
-		return nil, err
-	}
 	return c.Matrix.FullSyncRequest(ctx, mautrix.ReqSync{
-		Timeout: int(timeout.Milliseconds()),
-		Since:   since,
-		// The `filter` query parameter accepts either a filter ID or inline JSON; mautrix puts
-		// whatever is in FilterID straight into the query, so inline JSON goes here.
-		FilterID:    filter,
+		Timeout:     int(timeout.Milliseconds()),
+		Since:       since,
 		FullState:   false,
 		SetPresence: event.PresenceOffline,
 		Client: &http.Client{

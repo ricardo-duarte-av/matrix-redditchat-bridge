@@ -36,7 +36,8 @@ func captureServer(t *testing.T, body string) (*Client, <-chan *url.URL) {
 	return client, reqs
 }
 
-func TestSyncRequestShape(t *testing.T) {
+// Reddit drops m.reaction from any filtered sync, so the bridge must send none.
+func TestSyncSendsNoFilter(t *testing.T) {
 	client, reqs := captureServer(t, `{"next_batch":"s1"}`)
 	if _, err := client.Sync(context.Background(), "s0", 30*time.Second); err != nil {
 		t.Fatal(err)
@@ -47,16 +48,11 @@ func TestSyncRequestShape(t *testing.T) {
 		t.Errorf("path = %q, want /_matrix/client/v3/sync", u.Path)
 	}
 	q := u.Query()
-	if q.Get("timeout") != "30000" {
-		t.Errorf("timeout = %q, want 30000", q.Get("timeout"))
+	if got := q.Get("filter"); got != "" {
+		t.Errorf("filter = %q, want none - a filter makes Reddit withhold reactions", got)
 	}
-	if q.Get("since") != "s0" {
-		t.Errorf("since = %q, want s0", q.Get("since"))
-	}
-	// Reddit's client sends the filter inline as JSON rather than as a filter ID.
-	want := `{"room":{"state":{"lazy_load_members":true},"timeline":{"not_types":["com.reddit.review_open","com.reddit.review_close"],"lazy_load_members":true,"unread_thread_notifications":true}}}`
-	if got := q.Get("filter"); got != want {
-		t.Errorf("filter =\n%s\nwant\n%s", got, want)
+	if q.Get("timeout") != "30000" || q.Get("since") != "s0" {
+		t.Errorf("timeout/since = %q/%q, want 30000/s0", q.Get("timeout"), q.Get("since"))
 	}
 }
 

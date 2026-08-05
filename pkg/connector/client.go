@@ -33,6 +33,11 @@ type RedditChatClient struct {
 	refreshLock sync.Mutex
 
 	loggedIn atomic.Bool
+
+	// noticedPortals remembers where the unsupported-reaction notice was already posted, so a
+	// user reacting repeatedly gets told once rather than every time.
+	noticeLock     sync.Mutex
+	noticedPortals map[id.RoomID]bool
 }
 
 var (
@@ -175,7 +180,7 @@ func (c *RedditChatClient) GetCapabilities(_ context.Context, _ *bridgev2.Portal
 	// v1 bridges plain text only. Everything else is explicitly rejected so Matrix clients
 	// don't offer users features that would silently do nothing.
 	return &event.RoomFeatures{
-		ID: "net.daedric.redditchat.capabilities.v4",
+		ID: "net.daedric.redditchat.capabilities.v5",
 		// Images work in both directions. Reddit accepts nothing else - text, PDF, video and
 		// octet-stream are all refused with `"<type>" is not supported format` - so other file
 		// types are rejected here rather than failing after the user has sent them.
@@ -199,13 +204,16 @@ func (c *RedditChatClient) GetCapabilities(_ context.Context, _ *bridgev2.Portal
 		// as-is - which is what PartialSupport means.
 		Reply:  event.CapLevelPartialSupport,
 		Thread: event.CapLevelFullySupported,
-		// Reddit only accepts reaction keys from its own fixed emoji set; arbitrary unicode is
-		// refused with M_INVALID_ARGUMENT_VALUE "reaction key is not supported".
-		Reaction:        event.CapLevelRejected,
-		Edit:            event.CapLevelRejected,
-		Delete:          event.CapLevelRejected,
-		LocationMessage: event.CapLevelRejected,
-		Poll:            event.CapLevelRejected,
+		// Reactions arrive from Reddit and are bridged, but cannot be sent: Reddit only accepts
+		// keys from its own fixed emoji set and refuses unicode with M_INVALID_ARGUMENT_VALUE
+		// "reaction key is not supported". The bridge posts a notice explaining that when a
+		// Matrix user tries.
+		Reaction:             event.CapLevelRejected,
+		CustomEmojiReactions: true,
+		Edit:                 event.CapLevelRejected,
+		Delete:               event.CapLevelRejected,
+		LocationMessage:      event.CapLevelRejected,
+		Poll:                 event.CapLevelRejected,
 		// Replying accepts a Reddit chat request, but not implicitly: the bridge has to join the
 		// room first or Reddit rejects the send with "room auth reject due to event auth
 		// rejected". CapLevelFullySupported here would tell the central module the network

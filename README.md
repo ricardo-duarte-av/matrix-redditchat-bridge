@@ -20,10 +20,16 @@ v1 scope, working:
 - Text messages in both directions.
 - Images in both directions, re-hosted on each side.
 - Replies, which Reddit models as Matrix threads.
+- Reddit reactions, with their emoji GIFs re-hosted on Matrix.
 - Reddit → Matrix history backfill.
 - Double puppeting, via a second appservice or per-user `login-matrix`.
 
-Not implemented yet: reactions, edits, redactions, typing notifications and read receipts. Unsupported message types are logged and dropped rather than half-bridged, and Matrix
+Not implemented yet: sending reactions, edits, redactions, typing notifications and read
+receipts. Reddit reactions are bridged **into** Matrix, but cannot be sent from Matrix: Reddit
+accepts only keys from its own fixed emoji set and refuses unicode with
+`M_INVALID_ARGUMENT_VALUE: reaction key is not supported`. When a Matrix user reacts, the bridge
+bot posts a notice in the room explaining that, once per room, rather than letting the reaction
+vanish silently. Unsupported message types are logged and dropped rather than half-bridged, and Matrix
 clients are told via room capabilities what is and isn't supported.
 
 **Media is images only, in both directions.** Reddit's media endpoint accepts `image/jpeg`,

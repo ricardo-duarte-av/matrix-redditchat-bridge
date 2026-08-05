@@ -175,7 +175,26 @@ func (c *RedditChatClient) GetCapabilities(_ context.Context, _ *bridgev2.Portal
 	// v1 bridges plain text only. Everything else is explicitly rejected so Matrix clients
 	// don't offer users features that would silently do nothing.
 	return &event.RoomFeatures{
-		ID:              "net.daedric.redditchat.capabilities.v2",
+		ID: "net.daedric.redditchat.capabilities.v3",
+		// Images work in both directions. Reddit accepts nothing else - text, PDF, video and
+		// octet-stream are all refused with `"<type>" is not supported format` - so other file
+		// types are rejected here rather than failing after the user has sent them.
+		File: event.FileFeatureMap{
+			event.MsgImage: {
+				MimeTypes: map[string]event.CapabilitySupportLevel{
+					"image/jpeg": event.CapLevelFullySupported,
+					"image/png":  event.CapLevelFullySupported,
+					"image/gif":  event.CapLevelFullySupported,
+					"image/webp": event.CapLevelFullySupported,
+				},
+				// Reddit's image events carry no caption field.
+				Caption: event.CapLevelDropped,
+				MaxSize: redditchat.MaxUploadSize,
+			},
+			event.MsgVideo: {MimeTypes: map[string]event.CapabilitySupportLevel{"*": event.CapLevelRejected}},
+			event.MsgAudio: {MimeTypes: map[string]event.CapabilitySupportLevel{"*": event.CapLevelRejected}},
+			event.MsgFile:  {MimeTypes: map[string]event.CapabilitySupportLevel{"*": event.CapLevelRejected}},
+		},
 		Reply:           event.CapLevelRejected,
 		Edit:            event.CapLevelRejected,
 		Delete:          event.CapLevelRejected,

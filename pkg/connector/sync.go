@@ -231,12 +231,16 @@ func (c *RedditChatClient) handleTimelineEvent(ctx context.Context, portalKey ne
 			return
 		}
 		content := evt.Content.AsMessage()
-		if content.MsgType != event.MsgText && content.MsgType != event.MsgNotice && content.MsgType != event.MsgEmote {
-			// v1 only bridges text. Dropping loudly beats bridging a broken half-message.
+		convert := convertRedditMessage
+		switch {
+		case content.MsgType == event.MsgText || content.MsgType == event.MsgNotice || content.MsgType == event.MsgEmote:
+		case mediaMsgTypes[content.MsgType]:
+			convert = c.mediaConverter(evt.Content.Raw)
+		default:
 			log.Debug().
 				Stringer("event_id", evt.ID).
 				Str("msgtype", string(content.MsgType)).
-				Msg("Ignoring non-text Reddit message")
+				Msg("Ignoring unsupported Reddit message type")
 			return
 		}
 		c.Main.br.QueueRemoteEvent(c.UserLogin, &simplevent.Message[*event.MessageEventContent]{
@@ -252,7 +256,7 @@ func (c *RedditChatClient) handleTimelineEvent(ctx context.Context, portalKey ne
 			},
 			ID:                 networkid.MessageID(evt.ID),
 			Data:               content,
-			ConvertMessageFunc: convertRedditMessage,
+			ConvertMessageFunc: convert,
 		})
 	case event.StateMember, event.StateRoomName, event.StateTopic, event.StateRoomAvatar:
 		c.Main.br.QueueRemoteEvent(c.UserLogin, &simplevent.ChatResync{

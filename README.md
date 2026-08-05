@@ -18,12 +18,25 @@ v1 scope, working:
 - Ghost users (`@redditchat_t2_*`) for Reddit accounts, with display name and avatar.
 - The bridge bot creates portal rooms, invites the Matrix user, and joins the ghosts.
 - Text messages in both directions.
+- Images in both directions, re-hosted on each side.
 - Reddit → Matrix history backfill.
 - Double puppeting, via a second appservice or per-user `login-matrix`.
 
-Not implemented yet: media, reactions, edits, redactions, replies, typing notifications and read
-receipts. Non-text Reddit messages are logged and dropped rather than half-bridged, and Matrix
-clients are told via room capabilities that those features are unsupported.
+Not implemented yet: reactions, edits, redactions, replies, typing notifications and read
+receipts. Unsupported message types are logged and dropped rather than half-bridged, and Matrix
+clients are told via room capabilities what is and isn't supported.
+
+**Media is images only, in both directions.** Reddit's media endpoint accepts `image/jpeg`,
+`image/png`, `image/gif` and `image/webp` and refuses everything else with
+`"<type>" is not supported format` - verified for text, PDF, video and octet-stream. It also
+validates the bytes rather than trusting the declared type, so a mislabelled file is rejected.
+Limits come from Reddit's own `/_matrix/media/v3/config`: **20 MB**, or **100 MB for GIFs**. Both
+are enforced before upload so the user gets a clear error rather than a failure from Reddit.
+
+Reddit's `mxc://reddit.com/...` URIs only resolve on Reddit's server (the download 308-redirects
+to `i.redd.it`), so incoming images are fetched and re-uploaded to the local homeserver, and
+outgoing ones are uploaded to Reddit. Reddit's `com.reddit.nsfw_image` flag is carried through;
+its blurred-variant URI is dropped, since it would be a dead link in a Matrix client.
 
 ## Building
 

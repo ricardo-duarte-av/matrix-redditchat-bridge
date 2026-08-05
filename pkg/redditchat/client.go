@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"regexp"
 	"strings"
@@ -338,3 +339,98 @@ func (c *Client) JoinedRooms(ctx context.Context) ([]id.RoomID, error) {
 	}
 	return resp.JoinedRooms, nil
 }
+
+// Reddit-specific fields on m.image events. Reddit sends a blurred variant for NSFW content and,
+// on messages migrated from its old Sendbird backend, a direct CDN URL.
+const (
+	BlurredURLField = "com.reddit.blurred_url"
+	NSFWImageField  = "com.reddit.nsfw_image"
+)
+
+// DownloadMedia fetches media referenced by an mxc:// URI on Reddit's server.
+//
+// Reddit does not serve media bytes itself: /_matrix/media/v3/download answers 308 with a
+// redirect to its CDN (https://i.redd.it/<id>.<ext>), which is public. The redirect is
+// cross-host, so Go drops the Authorization header automatically, which is what we want.
+func (c *Client) DownloadMedia(ctx context.Context, uri id.ContentURI) ([]byte, string, error) {
+	if uri.IsEmpty() {
+		return nil, "", fmt.Errorf("empty media URI")
+	}
+	endpoint := c.Matrix.BuildClientURL("v3", "download", uri.Homeserver, uri.FileID)
+	// The media download path lives under /_matrix/media, not /_matrix/client.
+	endpoint = strings.Replace(endpoint, "/_matrix/client/v3/download/", "/_matrix/media/v3/download/", 1)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Matrix.AccessToken)
+
+	resp, err := (&http.Client{Timeout: c.Config.RequestTimeout}).Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to download %s: %w", uri.String(), err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("downloading %s returned %s", uri.String(), resp.Status)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, MaxMediaSize))
+	if err != nil {
+		return nil, "", err
+	}
+	return data, resp.Header.Get("Content-Type"), nil
+}
+
+// MaxMediaSize caps how much the bridge will pull from Reddit's CDN. Reddit's own limit is 20 MB
+// for most types and 100 MB for GIFs, so this leaves headroom without allowing anything unbounded.
+const MaxMediaSize = 110 << 20
+
+// Upload limits Reddit enforces, from /_matrix/media/v3/config on the live server.
+const (
+	MaxUploadSize    = 20 << 20  // m.upload.size
+	MaxGIFUploadSize = 100 << 20 // com.reddit.upload.size["image/gif"]
+)
+
+// SupportedUploadTypes are the mimetypes Reddit's media endpoint accepts. Anything else is
+// refused with `"<type>" is not supported format`, verified against the live server for
+// text/plain, application/pdf, video/mp4 and application/octet-stream.
+var SupportedUploadTypes = map[string]bool{
+	"image/jpeg": true,
+	"image/png":  true,
+	"image/gif":  true,
+	"image/webp": true,
+}
+
+// UploadLimitFor returns the byte limit Reddit applies to a given mimetype.
+func UploadLimitFor(mimeType string) int {
+	if mimeType == "image/gif" {
+		return MaxGIFUploadSize
+	}
+	return MaxUploadSize
+}
+
+// UploadMedia uploads a file to Reddit and returns its mxc:// URI.
+//
+// Reddit validates the bytes, not just the declared type: a payload that isn't really an image
+// is rejected with M_FORBIDDEN even when the Content-Type looks fine.
+func (c *Client) UploadMedia(ctx context.Context, data []byte, fileName, mimeType string) (id.ContentURIString, error) {
+	if !SupportedUploadTypes[mimeType] {
+		return "", fmt.Errorf("%w: Reddit chat only accepts images, not %s", ErrUnsupportedUpload, mimeType)
+	}
+	if limit := UploadLimitFor(mimeType); len(data) > limit {
+		return "", fmt.Errorf("%w: %s is %d bytes, Reddit's limit for %s is %d",
+			ErrUploadTooLarge, fileName, len(data), mimeType, limit)
+	}
+	resp, err := c.Matrix.UploadBytesWithName(ctx, data, mimeType, fileName)
+	if err != nil {
+		return "", err
+	}
+	return id.ContentURIString(resp.ContentURI.String()), nil
+}
+
+var (
+	// ErrUnsupportedUpload means Reddit will not accept this kind of file at all.
+	ErrUnsupportedUpload = errors.New("unsupported file type")
+	// ErrUploadTooLarge means the file exceeds Reddit's size limit.
+	ErrUploadTooLarge = errors.New("file too large")
+)

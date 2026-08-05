@@ -44,7 +44,7 @@ func (c *RedditChatClient) FetchMessages(ctx context.Context, params bridgev2.Fe
 
 	messages := make([]*bridgev2.BackfillMessage, 0, len(resp.Chunk))
 	for _, evt := range resp.Chunk {
-		msg := c.convertBackfillEvent(ctx, evt)
+		msg := c.convertBackfillEvent(ctx, params.Portal, params.Portal.Bridge.Bot, evt)
 		if msg != nil {
 			messages = append(messages, msg)
 		}
@@ -70,7 +70,7 @@ func (c *RedditChatClient) FetchMessages(ctx context.Context, params bridgev2.Fe
 	}, nil
 }
 
-func (c *RedditChatClient) convertBackfillEvent(ctx context.Context, evt *event.Event) *bridgev2.BackfillMessage {
+func (c *RedditChatClient) convertBackfillEvent(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, evt *event.Event) *bridgev2.BackfillMessage {
 	if evt.Type != event.EventMessage {
 		return nil
 	}
@@ -79,11 +79,18 @@ func (c *RedditChatClient) convertBackfillEvent(ctx context.Context, evt *event.
 		return nil
 	}
 	content := evt.Content.AsMessage()
-	if content.MsgType != event.MsgText && content.MsgType != event.MsgNotice && content.MsgType != event.MsgEmote {
+	var converted *bridgev2.ConvertedMessage
+	var err error
+	switch {
+	case content.MsgType == event.MsgText || content.MsgType == event.MsgNotice || content.MsgType == event.MsgEmote:
+		converted, err = convertRedditMessage(ctx, nil, nil, content)
+	case mediaMsgTypes[content.MsgType]:
+		converted, err = c.convertRedditMedia(ctx, portal, intent, content, evt.Content.Raw)
+	default:
 		return nil
 	}
-	converted, err := convertRedditMessage(ctx, nil, nil, content)
 	if err != nil {
+		zerolog.Ctx(ctx).Debug().Err(err).Stringer("event_id", evt.ID).Msg("Failed to convert backfilled message")
 		return nil
 	}
 	return &bridgev2.BackfillMessage{

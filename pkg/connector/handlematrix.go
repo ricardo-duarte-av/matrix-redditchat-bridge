@@ -1,8 +1,15 @@
 package connector
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -38,8 +45,10 @@ func (c *RedditChatClient) HandleMatrixAcceptMessageRequest(ctx context.Context,
 // but the message is stored under its Reddit event ID here, and the echo carries the same ID,
 // so bridgev2's own duplicate check drops it.
 func (c *RedditChatClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.MatrixMessage) (*bridgev2.MatrixMessageResponse, error) {
-	switch msg.Content.MsgType {
-	case event.MsgText, event.MsgNotice, event.MsgEmote:
+	switch {
+	case msg.Content.MsgType == event.MsgText || msg.Content.MsgType == event.MsgNotice || msg.Content.MsgType == event.MsgEmote:
+	case mediaMsgTypes[msg.Content.MsgType]:
+		return c.sendMatrixMedia(ctx, msg)
 	default:
 		return nil, fmt.Errorf("%w: %s messages are not supported yet", bridgev2.ErrUnsupportedMessageType, msg.Content.MsgType)
 	}
@@ -57,6 +66,95 @@ func (c *RedditChatClient) HandleMatrixMessage(ctx context.Context, msg *bridgev
 		}
 		return nil, fmt.Errorf("failed to send message to Reddit: %w", err)
 	}
+
+	return &bridgev2.MatrixMessageResponse{
+		DB: &database.Message{
+			ID:        networkid.MessageID(eventID),
+			SenderID:  networkid.UserID(c.UserLogin.ID),
+			Timestamp: time.UnixMilli(msg.Event.Timestamp),
+			SendTxnID: msg.InputTransactionID,
+		},
+	}, nil
+}
+
+// sendMatrixMedia re-hosts a Matrix file on Reddit and sends it as an image message.
+//
+// Reddit's media endpoint accepts images only and validates the bytes rather than trusting the
+// declared type, so anything else is rejected up front with an error the user can act on instead
+// of a confusing failure from Reddit. The event shape matches what Reddit's own web client
+// sends: body "Image", and info carrying w/h/mimetype/size.
+func (c *RedditChatClient) sendMatrixMedia(ctx context.Context, msg *bridgev2.MatrixMessage) (*bridgev2.MatrixMessageResponse, error) {
+	content := msg.Content
+	data, err := c.Main.br.Bot.DownloadMedia(ctx, content.URL, content.File)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download media from Matrix: %w", err)
+	}
+
+	mimeType := ""
+	if content.Info != nil {
+		mimeType = content.Info.MimeType
+	}
+	if mimeType == "" {
+		mimeType = http.DetectContentType(data)
+	}
+	// Normalise away any parameters such as "image/jpeg; charset=binary".
+	if idx := strings.IndexByte(mimeType, ';'); idx >= 0 {
+		mimeType = strings.TrimSpace(mimeType[:idx])
+	}
+
+	if !redditchat.SupportedUploadTypes[mimeType] {
+		return nil, fmt.Errorf("%w: Reddit chat only accepts images (jpeg, png, gif, webp), not %s",
+			bridgev2.ErrUnsupportedMessageType, mimeType)
+	}
+	if limit := redditchat.UploadLimitFor(mimeType); len(data) > limit {
+		return nil, fmt.Errorf("%w: %.1f MB exceeds Reddit's %d MB limit for %s",
+			bridgev2.ErrMediaDownloadFailed, float64(len(data))/(1<<20), limit>>20, mimeType)
+	}
+
+	fileName := content.FileName
+	if fileName == "" {
+		fileName = content.Body
+	}
+	if fileName == "" {
+		fileName = "image"
+	}
+	redditURL, err := c.Client.UploadMedia(ctx, data, fileName, mimeType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload media to Reddit: %w", err)
+	}
+
+	width, height := 0, 0
+	if content.Info != nil {
+		width, height = content.Info.Width, content.Info.Height
+	}
+	if width == 0 || height == 0 {
+		if cfg, _, decodeErr := image.DecodeConfig(bytes.NewReader(data)); decodeErr == nil {
+			width, height = cfg.Width, cfg.Height
+		}
+	}
+
+	// Match Reddit's own client exactly; its UI keys off info rather than body.
+	outgoing := &event.MessageEventContent{
+		MsgType: event.MsgImage,
+		Body:    "Image",
+		URL:     redditURL,
+		Info: &event.FileInfo{
+			Width:    width,
+			Height:   height,
+			MimeType: mimeType,
+			Size:     len(data),
+		},
+	}
+	eventID, err := c.Client.SendText(ctx, id.RoomID(msg.Portal.ID), outgoing, string(msg.InputTransactionID))
+	if err != nil {
+		if redditchat.IsTokenError(err) {
+			c.reportError(err, "failed to send media")
+		}
+		return nil, fmt.Errorf("failed to send media message to Reddit: %w", err)
+	}
+	zerolog.Ctx(ctx).Debug().
+		Str("mimetype", mimeType).Int("size", len(data)).
+		Msg("Uploaded Matrix media to Reddit")
 
 	return &bridgev2.MatrixMessageResponse{
 		DB: &database.Message{

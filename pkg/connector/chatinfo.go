@@ -181,7 +181,7 @@ func (c *RedditChatClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghos
 	if name != "" {
 		info.Name = &name
 	}
-	if avatar := c.fetchAvatar(ctx, name); avatar != nil {
+	if avatar := c.fetchAvatar(ctx, ghost.ID, name); avatar != nil {
 		info.Avatar = avatar
 	}
 	return info, nil
@@ -192,18 +192,27 @@ func (c *RedditChatClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghos
 // Reddit's Matrix layer has no avatars at all - every profile and member event carries an empty
 // avatar_url - so the only source is reddit.com, which needs the session cookie. Logins made with
 // the token-only flow have no cookie, so they simply get no avatars rather than an error.
-func (c *RedditChatClient) fetchAvatar(ctx context.Context, username string) *bridgev2.Avatar {
-	if username == "" || !c.CanRefresh() {
-		return nil
-	}
+func (c *RedditChatClient) fetchAvatar(ctx context.Context, userID networkid.UserID, username string) *bridgev2.Avatar {
 	if c.Main == nil || c.Main.aboutCache == nil {
 		return nil
 	}
-	about := c.Main.aboutCache.get(ctx, c.web(), username)
-	if about == nil {
-		return nil
+	// Prefer the profile Reddit delivered over Matrix: it needs no session cookie and no
+	// request, and it is what a token-only login has to rely on.
+	var avatarURL string
+	if profile := c.Main.profiles.get(userID, username); profile != nil {
+		avatarURL = profile.AvatarURL()
 	}
-	avatarURL := about.AvatarURL()
+	if avatarURL == "" {
+		// Nothing seen in-band yet. reddit.com still has it, but only with a cookie.
+		if username == "" || !c.CanRefresh() {
+			return nil
+		}
+		about := c.Main.aboutCache.get(ctx, c.web(), username)
+		if about == nil {
+			return nil
+		}
+		avatarURL = about.AvatarURL()
+	}
 	if avatarURL == "" {
 		return nil
 	}
@@ -229,7 +238,7 @@ func (c *RedditChatClient) userInfoFor(ctx context.Context, remoteID, displayNam
 		Name:        &name,
 		Identifiers: []string{fmt.Sprintf("reddit:%s", remoteID)},
 	}
-	if avatar := c.fetchAvatar(ctx, displayName); avatar != nil {
+	if avatar := c.fetchAvatar(ctx, networkid.UserID(remoteID), displayName); avatar != nil {
 		info.Avatar = avatar
 	}
 	return info

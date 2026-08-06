@@ -260,6 +260,8 @@ func (c *RedditChatClient) handleTimelineEvent(ctx context.Context, portalKey ne
 		})
 	case event.EventReaction:
 		c.handleRedditReaction(ctx, portalKey, evt, false)
+	case event.Type{Type: redditchat.ProfileEventType, Class: event.MessageEventType}:
+		c.handleRedditProfile(ctx, evt)
 	case event.StateMember, event.StateRoomName, event.StateTopic, event.StateRoomAvatar:
 		c.Main.br.QueueRemoteEvent(c.UserLogin, &simplevent.ChatResync{
 			EventMeta: simplevent.EventMeta{

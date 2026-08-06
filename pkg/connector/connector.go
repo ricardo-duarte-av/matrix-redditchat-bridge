@@ -10,9 +10,11 @@ type RedditChatConnector struct {
 	br     *bridgev2.Bridge
 	Config Config
 
-	// aboutCache keeps Reddit user info (the only source of avatars) from being re-fetched on
-	// every incoming message.
+	// aboutCache keeps reddit.com lookups and avatar uploads from being repeated.
 	aboutCache *aboutCache
+	// profiles holds avatars learned from com.reddit.profile events, which is the in-band
+	// source and needs no session cookie.
+	profiles *profileStore
 }
 
 var (
@@ -22,7 +24,7 @@ var (
 )
 
 func NewConnector() *RedditChatConnector {
-	return &RedditChatConnector{aboutCache: newAboutCache()}
+	return &RedditChatConnector{aboutCache: newAboutCache(), profiles: newProfileStore()}
 }
 
 func (rc *RedditChatConnector) Init(bridge *bridgev2.Bridge) {

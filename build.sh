@@ -1,6 +1,6 @@
 #!/bin/sh
-# CGO is required for the Matrix-side end-to-bridge encryption support in mautrix-go.
-# Build with CGO_ENABLED=0 or -tags nocrypto if you don't need it.
+# CGO is required for the sqlite3 driver. The goolm build tag selects mautrix's pure-Go crypto
+# instead of libolm, so no C olm headers are needed while end-to-bridge encryption still works.
 export CGO_ENABLED=${CGO_ENABLED:-1}
 
 MAIN_PKG=./cmd/matrix-redditchat
@@ -9,4 +9,4 @@ GO_LDFLAGS="-s -w \
     -X main.Commit=$(git rev-parse HEAD) \
     -X 'main.BuildTime=$(date -Iseconds)'"
 
-go build -ldflags="$GO_LDFLAGS" -o matrix-redditchat "$@" "$MAIN_PKG"
+go build -tags goolm -ldflags="$GO_LDFLAGS" -o matrix-redditchat "$@" "$MAIN_PKG"

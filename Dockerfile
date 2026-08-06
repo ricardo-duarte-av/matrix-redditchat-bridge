@@ -1,7 +1,8 @@
 FROM golang:1.25-alpine AS builder
 
-# CGO is on so the Matrix-side end-to-bridge encryption support is compiled in; it is still
-# disabled unless enabled in the config.
+# CGO is needed for the sqlite3 driver. The goolm build tag picks mautrix's pure-Go crypto over
+# libolm, so no olm C headers are required; encryption is still compiled in, just disabled unless
+# turned on in the config.
 RUN apk add --no-cache build-base git
 
 WORKDIR /build
@@ -12,7 +13,7 @@ RUN go mod download
 COPY . .
 ARG COMMIT=unknown
 ARG BUILD_TIME=unknown
-RUN CGO_ENABLED=1 go build -ldflags "-s -w \
+RUN CGO_ENABLED=1 go build -tags goolm -ldflags "-s -w \
         -X main.Commit=${COMMIT} \
         -X 'main.BuildTime=${BUILD_TIME}'" \
     -o /build/matrix-redditchat ./cmd/matrix-redditchat

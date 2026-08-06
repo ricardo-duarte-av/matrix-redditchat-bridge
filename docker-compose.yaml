@@ -1,0 +1,35 @@
+services:
+  matrix-redditchat:
+    image: ghcr.io/ricardo-duarte-av/matrix-redditchat-bridge:latest
+    container_name: matrix-redditchat
+    restart: unless-stopped
+
+    # Config, both registration files and bridge.db all live here. Nothing else needs to persist.
+    volumes:
+      - ./data:/data
+
+    # The homeserver has to be able to reach the bridge on this port. If Synapse runs in Docker
+    # too, put both on the same network (see below) and set appservice.address in config.yaml to
+    # http://matrix-redditchat:29340 - no port publishing needed in that case.
+    # ports:
+    #   - "29340:29340"
+
+    # Join the network the homeserver is on, so it can resolve this container by name.
+    # Replace with your Synapse network; `docker network ls` will show it.
+    networks:
+      - synapse
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  synapse:
+    external: true
+    # The docker network Synapse is attached to. On this host that is the network holding
+    # 172.20.0.0/16; find its name with:
+    #   docker network ls
+    #   docker inspect <synapse-container> --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}'
+    name: CHANGE-ME

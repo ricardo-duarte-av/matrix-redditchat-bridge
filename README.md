@@ -45,7 +45,36 @@ to `i.redd.it`), so incoming images are fetched and re-uploaded to the local hom
 outgoing ones are uploaded to Reddit. Reddit's `com.reddit.nsfw_image` flag is carried through;
 its blurred-variant URI is dropped, since it would be a dead link in a Matrix client.
 
-## Building
+## Running with Docker
+
+```sh
+mkdir -p data
+docker compose up
+```
+
+The bridge bootstraps itself from `./data` one step per run, exiting between steps because each
+one needs you to do something before the next can work:
+
+1. **No `config.yaml`** - one is written to `./data`, with the database pointed at the mounted
+   directory and the listener bound to `0.0.0.0`. Fill in `homeserver.address`,
+   `homeserver.domain`, `appservice.address` (how the *homeserver* reaches this container) and
+   `bridge.permissions`, then start it again.
+2. **No `registration.yaml`** - the registration is generated, plus
+   `doublepuppet-registration.yaml` unless `double_puppet.secrets` already has an entry for your
+   homeserver. Install them on your homeserver, paste the printed double puppet secret into
+   `config.yaml`, restart the homeserver, then start this again.
+3. **All present** - the bridge runs.
+
+Everything that must persist (config, both registrations, `bridge.db`) lives in `./data`.
+
+Edit `docker-compose.yaml` before the first run: set `networks.synapse.name` to the docker
+network your homeserver is on, so it can reach the bridge by container name. If the homeserver
+isn't in Docker, drop the `networks` block and publish the port instead.
+
+Images are built by CI on every push and published to
+`ghcr.io/ricardo-duarte-av/matrix-redditchat-bridge:latest`.
+
+## Building from source
 
 ```sh
 ./build.sh

@@ -1,0 +1,13 @@
+# Everything the image doesn't need, and everything that must never end up in it.
+.git
+.github
+data/
+config.yaml
+registration.yaml
+doublepuppet-registration.yaml
+bridge.db
+bridge.db-shm
+bridge.db-wal
+logs/
+matrix-redditchat
+*.md

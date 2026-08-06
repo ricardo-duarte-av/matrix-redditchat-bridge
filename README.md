@@ -20,7 +20,8 @@ v1 scope, working:
 - Text messages in both directions.
 - Images in both directions, re-hosted on each side.
 - Replies, which Reddit models as Matrix threads.
-- Reddit reactions, with their emoji GIFs re-hosted on Matrix.
+- Reddit reactions, re-hosted as custom image reactions (the `m.relates_to` key is the `mxc://`
+  URI, with `com.beeper.reaction.shortcode` as the display hint).
 - Reddit → Matrix history backfill.
 - Double puppeting, via a second appservice or per-user `login-matrix`.
 

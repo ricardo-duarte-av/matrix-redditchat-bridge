@@ -3,7 +3,6 @@ package connector
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -118,15 +117,13 @@ func (c *RedditChatClient) handleRedditReaction(ctx context.Context, portalKey n
 		Emoji:         key,
 	}
 	if !remove {
-		if mxc, info := c.rehostReactionImage(ctx, key); mxc != "" {
-			// Clients that render image reactions look for these; the ones that don't fall back
-			// to the shortcode text.
-			reaction.Emoji = reactionShortcode(key)
+		if mxc := c.rehostReactionImage(ctx, key); mxc != "" {
+			// A custom image reaction puts the mxc URI in the key itself; the shortcode is only
+			// a display hint. Putting the shortcode in the key and the URI in a separate field
+			// renders as bare text, because no client looks there.
+			reaction.Emoji = string(mxc)
 			reaction.ExtraContent = map[string]any{
-				"com.beeper.reaction.shortcode": reaction.Emoji,
-				"shortcode":                     reaction.Emoji,
-				"url":                           string(mxc),
-				"info":                          info,
+				"com.beeper.reaction.shortcode": reactionShortcode(key),
 			}
 		}
 	}
@@ -135,16 +132,12 @@ func (c *RedditChatClient) handleRedditReaction(ctx context.Context, portalKey n
 
 // rehostReactionImage uploads a Reddit reaction emoji to Matrix, reusing the avatar upload cache
 // so the same emoji is fetched and uploaded at most once per bridge run.
-func (c *RedditChatClient) rehostReactionImage(ctx context.Context, key string) (id.ContentURIString, map[string]any) {
+func (c *RedditChatClient) rehostReactionImage(ctx context.Context, key string) id.ContentURIString {
 	imageURL := redditEmojiURL(key)
 	if imageURL == "" {
-		return "", nil
+		return ""
 	}
-	mxc := c.Main.aboutCache.uploadAvatar(ctx, c.Main, c.web(), imageURL)
-	if mxc == "" {
-		return "", nil
-	}
-	return mxc, map[string]any{"mimetype": mimeForKey(key)}
+	return c.Main.aboutCache.uploadAvatar(ctx, c.Main, c.web(), imageURL)
 }
 
 // redditEmojiURL maps a reaction key onto Reddit's CDN. Keys carry their own extension, e.g.
@@ -154,21 +147,6 @@ func redditEmojiURL(key string) string {
 		return ""
 	}
 	return "https://i.redd.it/" + key
-}
-
-func mimeForKey(key string) string {
-	switch {
-	case strings.HasSuffix(key, ".gif"):
-		return "image/gif"
-	case strings.HasSuffix(key, ".png"):
-		return "image/png"
-	case strings.HasSuffix(key, ".jpg"), strings.HasSuffix(key, ".jpeg"):
-		return "image/jpeg"
-	case strings.HasSuffix(key, ".webp"):
-		return "image/webp"
-	default:
-		return http.DetectContentType(nil)
-	}
 }
 
 // Removing a reaction is deliberately not implemented yet. bridgev2 resolves a removal by

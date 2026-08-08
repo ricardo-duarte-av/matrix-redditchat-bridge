@@ -2,6 +2,7 @@ package connector
 
 import (
 	"context"
+	"sync/atomic"
 
 	"maunium.net/go/mautrix/bridgev2"
 )
@@ -15,6 +16,9 @@ type RedditChatConnector struct {
 	// profiles holds avatars learned from com.reddit.profile events, which is the in-band
 	// source and needs no session cookie.
 	profiles *profileStore
+	// networkIcon holds the mxc:// URI of the uploaded protocol avatar, as a string. It is empty
+	// until the upload in Start succeeds.
+	networkIcon atomic.Value
 }
 
 var (
@@ -31,7 +35,8 @@ func (rc *RedditChatConnector) Init(bridge *bridgev2.Bridge) {
 	rc.br = bridge
 }
 
-func (rc *RedditChatConnector) Start(_ context.Context) error {
+func (rc *RedditChatConnector) Start(ctx context.Context) error {
+	rc.ensureNetworkIcon(ctx)
 	return nil
 }
 
@@ -39,7 +44,7 @@ func (rc *RedditChatConnector) GetName() bridgev2.BridgeName {
 	return bridgev2.BridgeName{
 		DisplayName:          "Reddit Chat",
 		NetworkURL:           "https://www.reddit.com/chat",
-		NetworkIcon:          "",
+		NetworkIcon:          rc.networkIconMXC(),
 		NetworkID:            "redditchat",
 		BeeperBridgeType:     "github.com/ricardo-duarte-av/matrix-redditchat-bridge",
 		DefaultPort:          29340,
